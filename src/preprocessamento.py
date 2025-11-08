@@ -2,7 +2,8 @@ import pandas as pd
 import unicodedata
 import re
 
-CSV_PATH = "vendas_dataset.csv"    # ajuste se necessário
+CSV_PATH = "../data/vendas_dataset.csv"
+    # ajuste se necessário
 COLUNA_TRANSACAO = None            # se houver coluna com itens separados por vírgula, colocar o nome; senão deixar None
 REMOVER_NUMEROS = True             # se False, preserva números (ex.: tamanhos)
 
