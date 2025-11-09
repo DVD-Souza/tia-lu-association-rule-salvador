@@ -3,9 +3,9 @@ import unicodedata
 import re
 
 CSV_PATH = "../data/vendas_dataset.csv"
-    # ajuste se necessário
-COLUNA_TRANSACAO = None            # se houver coluna com itens separados por vírgula, colocar o nome; senão deixar None
-REMOVER_NUMEROS = True             # se False, preserva números (ex.: tamanhos)
+COLUNA_TRANSACAO = "descricao_produtos"  # ajuste se necessário
+REMOVER_NUMEROS = True                   # True: remove tamanhos, anos, etc.
+REMOVER_CORES = True                     # True: remove cores para consolidar itens
 
 # ---------- utilitárias simples ----------
 def remover_acentos(texto: str) -> str:
@@ -15,15 +15,42 @@ def remover_acentos(texto: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 # ---------- semântica de domínio ----------
-MARCAS_COMUNS = ["nike", "adidas", "puma", "star", "max", "selfie", "mic"]
-PALAVRAS_IRRELEVANTES = ["moda", "conjunto", "liso", "unissex", "adulto", "infantil"]
+MARCAS_COMUNS = [
+    "PIMPOLHO", "MICOL", "MICOL BABY KIDS", "MECBEE BABY", "LA MAYARA",
+    "LILI LANGERIE", "NIKKO", "NIKKOMOLETOM", "BRANDILI", "KYLY", "KAMYLUS", 
+    "ELIAN", "NANAI", "MINASREY", "D’VYSTEK", "MGRM", "MGRMGLUPMETAMANIA", 
+    "L&D", "APOLO", "MARANDS", "MAR DE PRATA", "MARINHO", "KORTE", "REKORTE",
+    "HÄOS", "HAOS", "SELENE", "BERNA BABY", "TUBARÃO", "FOLIA KIDS", "DINGA", 
+    "DENGO", "BABY SOFFETE", "ZANGADINHO"
+]
+
+PALAVRAS_IRRELEVANTES = [
+    "C/ UN", "C UN", "PARES", "KIT", "CONJ", "CONJUNTO", "PACOTE", "PEÇAS", 
+    "REF", "REF.", "LISO", "ESTAMPADA", "MALHA", "ALGODÃO", "POLIAMIDA", "SUEDE", 
+    "VISCO", "LINHO", "TACTEL", "CROPPED", "WAFFLE", "PENTEADA", "CANELADA", 
+    "ELÁSTICO", "FRIA", "MANGA", "MANGA CURTA", "MANGA LONGA",
+    "SHORT", "BERMUDA", "VESTIDO", "BLUSA", "REGATA", "BODY", "CALCINHA", "CUECA", 
+    "SUTIÃ", "MEIA", "TOALHA", "BABY DOLL", "PIJAMA", "MACACÃO", "MACAQUITO", 
+    "BONE", "BIQUINI", "SAPATINHO", "SAPATO", "MANTA", "LUVA", "FAIXA", "TIARA", 
+    "UNISSEX", "MASC", "FEM", "INFANTIL", "JUVENIL", "KIDS", "ADULTO", "MINI", 
+    "NEW", "TURMA", "BABY", "JUNINHO", "PAS", "PASTEL", "ROSA", "AMARELO", "VERDE",
+    "BEGE", "MARINHO", "BRANCO", "OFF WHITE", "AZUL", "CINZA", "LARANJA", "VERMELHO",
+    "CORAL", "SALMÃO", "ROSA SUAVE", "CARAMELO", "GEOMETRICA", "ONÇA", "TIGRE", 
+    "LEÃO", "BOLINHA", "FOFINHA", "LUXUOSA", "SOFT", "INVISÍVEL", "OPACA"
+]
+
 SINONIMOS = {
-    "camiseta": "camisa",
-    "blusa": "camisa",
-    "tennis": "tenis",
-    "shorts": "bermuda",
-    "calças": "calca",
-    "calças jeans": "calca jeans"
+    "LISO": ["SEM ESTAMPA", "BÁSICO"],
+    "ESTAMPADO": ["COM ESTAMPA", "PRINT", "PADRÃO"],
+    "CAMISETA": ["T-SHIRT", "TOP", "BLUSA ALGODÃO"],
+    "SUTIÃ": ["TOP", "SUPORTE", "SPORT"],
+    "CALCINHA": ["BOTTOM", "INFANTIL BOTTOM", "TANGA", "BOX", "BABY"],
+    "CUECA": ["BOX", "INFANTIL BOX", "LISA", "ESTAMPADA", "BOXER"],
+    "SHORT": ["BERMUDA", "CALÇÃO", "TACTEL", "ALGODÃO"],
+    "VESTIDO": ["DRESS", "REGATA", "MALHA", "TECIDO"],
+    "MACACÃO": ["JARDINEIRA", "MACAQUITO", "UV PROTECTION", "LONGO", "CURTO"],
+    "MEIA": ["MEIA LISA", "MEIA COLORIDA", "MEIA POLIAMIDA", "MEIA-CALÇA", "MEIA FESTA", "MEIA INFANTIL"],
+    "KIT": ["CONJUNTO", "PACOTE", "PAR"]
 }
 
 def normalizar_semantica(item: str) -> str:
@@ -33,24 +60,24 @@ def normalizar_semantica(item: str) -> str:
     tokens = item.split()
     tokens_filtrados = []
     for tok in tokens:
-        # remover marcas
         if tok in MARCAS_COMUNS:
             continue
-        # remover palavras irrelevantes
         if tok in PALAVRAS_IRRELEVANTES:
             continue
-        # unificar sinônimos
         if tok in SINONIMOS:
             tok = SINONIMOS[tok]
-        # tratar plural simples (ex.: bermudas -> bermuda)
-        if tok.endswith("s") and len(tok) > 3:
+        # tratar plural simples
+        if tok.endswith("s") and len(tok) > 6 and not tok.endswith("ss"):
             tok = tok[:-1]
         tokens_filtrados.append(tok)
     return " ".join(tokens_filtrados).strip()
 
 # ---------- normalização técnica + semântica ----------
-def normalizar_item(item: str, remover_numeros: bool = REMOVER_NUMEROS) -> str:
-    """Lowercase, sem acentos, opcionalmente sem números, sem símbolos extras, espaços colapsados + semântica."""
+def normalizar_item(item: str, remover_numeros: bool = REMOVER_NUMEROS, remover_cores: bool = REMOVER_CORES) -> str:
+    """
+    Lowercase, sem acentos, opcionalmente sem números e cores, sem símbolos extras, 
+    espaços colapsados + semântica.
+    """
     if not isinstance(item, str):
         return ""
     s = item.strip().lower()
@@ -60,15 +87,18 @@ def normalizar_item(item: str, remover_numeros: bool = REMOVER_NUMEROS) -> str:
     s = re.sub(r"[^\w\s]", "", s)
     s = s.replace("_", " ")
     s = normalizar_semantica(s)
+    # remover cores se necessário
+    if remover_cores:
+        s_tokens = [tok for tok in s.split() if tok not in PALAVRAS_IRRELEVANTES]
+        s = " ".join(s_tokens)
     s = re.sub(r"\s+", " ", s).strip()
     return s
-
 
 # ---------- carregar transações ----------
 def carregar_transacoes(csv_path: str = CSV_PATH, coluna: str = COLUNA_TRANSACAO):
     """
     Retorna lista de transacoes (cada transacao é lista de strings brutas).
-    - Se 'coluna' existir: espera itens separados por vírgula nessa coluna.
+    - Se 'coluna' existir: espera itens separados por ';' nessa coluna.
     - Senão: junta todas as colunas não-nulas por linha (cada coluna = item).
     """
     try:
@@ -83,7 +113,7 @@ def carregar_transacoes(csv_path: str = CSV_PATH, coluna: str = COLUNA_TRANSACAO
         for val in df[coluna].tolist():
             if str(val).strip() == "":
                 continue
-            itens = [i.strip() for i in str(val).split(",") if i.strip() != ""]
+            itens = [i.strip() for i in str(val).split(";") if i.strip() != ""]
             transacoes.append(itens)
     else:
         for _, row in df.iterrows():
@@ -93,7 +123,7 @@ def carregar_transacoes(csv_path: str = CSV_PATH, coluna: str = COLUNA_TRANSACAO
     return transacoes
 
 # ---------- pré-processamento essencial ----------
-def preprocessar_transacoes(transacoes_raw, remover_numeros: bool = REMOVER_NUMEROS):
+def preprocessar_transacoes(transacoes_raw, remover_numeros: bool = REMOVER_NUMEROS, remover_cores: bool = REMOVER_CORES):
     """
     Normaliza cada item e remove duplicatas dentro da mesma transação.
     Retorna: transacoes_norm (lista de listas) e transacoes_sets (lista de sets).
@@ -102,7 +132,7 @@ def preprocessar_transacoes(transacoes_raw, remover_numeros: bool = REMOVER_NUME
     for trans in transacoes_raw:
         itens = []
         for it in trans:
-            it2 = normalizar_item(it, remover_numeros)
+            it2 = normalizar_item(it, remover_numeros, remover_cores)
             if it2:
                 itens.append(it2)
         # remover duplicatas mantendo ordem
@@ -117,10 +147,12 @@ def preprocessar_transacoes(transacoes_raw, remover_numeros: bool = REMOVER_NUME
     transacoes_sets = [set(t) for t in transacoes_norm]
     return transacoes_norm, transacoes_sets
 
-# ---------- interface que você entrega ao time ----------
-def gerar_dados_preprocessados(csv_path=CSV_PATH, coluna=COLUNA_TRANSACAO, remover_numeros: bool = REMOVER_NUMEROS):
+# ---------- interface principal ----------
+def gerar_dados_preprocessados(csv_path=CSV_PATH, coluna=COLUNA_TRANSACAO, 
+                               remover_numeros: bool = REMOVER_NUMEROS, 
+                               remover_cores: bool = REMOVER_CORES):
     raw = carregar_transacoes(csv_path, coluna)
-    transacoes, transacoes_sets = preprocessar_transacoes(raw, remover_numeros)
+    transacoes, transacoes_sets = preprocessar_transacoes(raw, remover_numeros, remover_cores)
     return transacoes, transacoes_sets
 
 # ---------- teste rápido ----------
